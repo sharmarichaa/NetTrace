@@ -1,86 +1,80 @@
 # NetTrace
 
-NetTrace is a network packet analyzer built in C++.
-
-It captures network traffic, parses packet headers, and displays information about protocols, IP addresses, ports, packet sizes, and other network details.
-
-The project is being developed to understand how network traffic works at the packet level and to build practical network security tooling from scratch.
+A command-line network packet analyzer written in C++17. It reads `.pcap` capture files, decodes the packet headers by hand (no parsing libraries), prints traffic statistics, and flags suspicious patterns such as port scans and floods.
 
 ## Features
 
-- Live packet capture
-- Ethernet frame parsing
-- IPv4 packet parsing
-- TCP packet parsing
-- UDP packet parsing
-- ICMP packet parsing
-- Source and destination IP information
-- Source and destination port information
-- Packet size and timestamp
-- Protocol statistics
-- Packet filtering
-- Suspicious traffic detection
-- CSV export
-- Capture history
+- Reads `.pcap` files (both byte orders, microsecond and nanosecond timestamps)
+- Parses Ethernet (including 802.1Q VLAN tags), IPv4, TCP (with flags), UDP, ICMP and DNS (port 53)
+- Labels ARP and IPv6 packets
+- Protocol breakdown and top talkers by source IP
+- Rule-based detection with tunable thresholds (see below)
+- Exports every packet to `report.csv`
+- Bounds-checked parsing: truncated, malformed or non-pcap files are reported, not crashed on
 
-## Technologies
+No machine learning and no external libraries. All header parsing and analysis logic is written from scratch.
 
-- C++
-- Npcap
-- Qt
-- SQLite
-- CMake
+## Detection rules
 
-## Planned Security Detection
+| Alert | Severity | Rule (default threshold) |
+| --- | --- | --- |
+| Port scan | HIGH | One source sends SYN-only packets to 15 or more distinct (IP, port) targets |
+| SYN flood | HIGH | 100 or more SYN-only packets sent to one destination |
+| ICMP flood | MEDIUM | 100 or more ICMP echo requests from one source |
 
-NetTrace will use rule-based detection to identify patterns such as:
+Thresholds are constants at the top of `src/main.cpp`. These are simple heuristics: an alert is a pattern worth investigating, not proof of an attack.
 
-- Possible port scanning
-- Repeated connection attempts
-- Unusual ICMP traffic
-- High packet rates
-- Repeated connections to the same destination
+## Build
 
-No machine learning is used.
+Requires a C++17 compiler (g++) and CMake. On Windows, use MSYS2 UCRT64.
 
-## Project Structure
-
-```text
-NetTrace/
-├── src/
-│   ├── capture/
-│   ├── parser/
-│   ├── analysis/
-│   ├── detection/
-│   └── main.cpp
-├── include/
-├── tests/
-├── resources/
-├── CMakeLists.txt
-└── README.md
+```
+cmake -S . -B build
+cmake --build build
 ```
 
-## Requirements
+## Usage
 
-- Windows
-- C++17 or later
-- CMake
-- Npcap
-- Qt 6
-- SQLite
+```
+./build/nettrace data/http.cap           # first 20 packets + summary + alerts
+./build/nettrace data/http.cap --all     # every packet
+```
 
-## Building
+Example output (Wireshark's `http.cap` sample):
 
-Build instructions will be added as the project develops.
+```
+ No.  Time               Source                   Destination           Proto    Len  Info
+   1  1084443427.311224  145.254.160.237:3372  -> 65.208.228.223:80     TCP       62  [SYN]
+   2  1084443428.222534  65.208.228.223:80     -> 145.254.160.237:3372  TCP       62  [SYN,ACK]
+   ...
 
-## Status
+== Summary ==
+Packets: 43   Bytes: 25091
 
-🚧 Work in progress
+Protocols:
+  TCP        41
+  DNS        2
 
+== Alerts ==
+None found.
+```
 
+## Validation
 
-## Purpose
+- Packet counts, lengths, addresses and ports on `data/http.cap` were checked against Wireshark (43 packets, packet 1 is 62 bytes).
+- Detection rules were tested on synthetic captures containing a port scan, a SYN flood and an ICMP flood.
+- Edge cases tested: big-endian and nanosecond pcaps, VLAN-tagged frames, truncated files, pcapng input, and non-pcap files.
 
-This project is mainly a hands-on implementation of network packet analysis and security monitoring using C++.
+## Limitations
 
-The goal is to understand the underlying networking concepts rather than relying on high-level packet analysis tools.
+- Offline analysis of `.pcap` files only. No live capture yet, and `.pcapng` files must be converted first (Wireshark: File > Save As > pcap).
+- Ethernet link type and IPv4 only. IPv6 packets are counted but not decoded.
+- No TCP stream reassembly, and IP fragments are labelled but not reassembled.
+- Only capture and analyze traffic on networks you own or are authorised to monitor.
+
+## Roadmap
+
+- Unit tests for the header parsers
+- Live capture using Npcap/libpcap
+- IPv6 parsing
+- HTML report
