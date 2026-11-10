@@ -16,7 +16,7 @@ using Bytes = std::vector<uint8_t>;
 
 // ---- detection thresholds (change these to tune the rules) ----
 const size_t SCAN_PORT_LIMIT = 15;   // distinct SYN targets from one source
-const int SYN_FLOOD_LIMIT = 100;     // SYN-only packets toward one destination
+const int SYN_FLOOD_LIMIT = 100;     // SYN-only packets toward one destination IP:port
 const int ICMP_FLOOD_LIMIT = 100;    // ICMP echo requests from one source
 
 // ---- helpers: network byte order (big-endian) ----
@@ -171,7 +171,7 @@ int main(int argc, char* argv[]) {
     std::map<std::string, int> pktsBySrc;
     std::map<std::string, uint64_t> bytesBySrc;
     std::map<std::string, std::set<std::pair<std::string, int>>> synTargets;
-    std::map<std::string, int> synToDst;
+    std::map<std::pair<std::string, int>, int> synToTarget;  // (dst ip, dst port)
     std::map<std::string, int> echoBySrc;
     uint64_t totalBytes = 0;
     int count = 0;
@@ -214,7 +214,7 @@ int main(int argc, char* argv[]) {
         bool synOnly = k.tcpFlags >= 0 && (k.tcpFlags & 0x02) && !(k.tcpFlags & 0x10);
         if (synOnly) {
             synTargets[k.src].insert({k.dst, k.dport});
-            synToDst[k.dst]++;
+            synToTarget[{k.dst, k.dport}]++;
         }
         if (k.icmpType == 8) echoBySrc[k.src]++;
 
@@ -261,10 +261,10 @@ int main(int argc, char* argv[]) {
                         s.first.c_str(), s.second.size());
             alerts++;
         }
-    for (auto& s : synToDst)
+    for (auto& s : synToTarget)
         if (s.second >= SYN_FLOOD_LIMIT) {
-            std::printf("[HIGH]   Possible SYN flood: %d SYN packets sent to %s\n",
-                        s.second, s.first.c_str());
+            std::printf("[HIGH]   Possible SYN flood: %d SYN packets sent to %s:%d\n",
+                        s.second, s.first.first.c_str(), s.first.second);
             alerts++;
         }
     for (auto& s : echoBySrc)
